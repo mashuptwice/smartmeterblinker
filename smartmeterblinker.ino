@@ -94,6 +94,12 @@ void loop()
       Serial.print(" W");
       Serial.println("");
       ldrCount = 0;
+
+      //reset device every 46 days to prevent millis() from overflowing a unsigned long (happens at 49 days)
+      if ( lastMillis >= 4000000000 )
+      {
+      ESP.restart();
+      }
     }
   #endif
 }
