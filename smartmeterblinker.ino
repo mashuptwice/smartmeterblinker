@@ -2,11 +2,10 @@
 This is a rudimentary piece of code to read the "1000 blinks per KWh" LED on smart energy meters in europe.
 It simply counts a change of brightness on a light dependent resistor and does some simple math to calculate 
 the actual energy usage in watts.
-The basic code is simulated in tinkercad just to get the calculations right in the first place
+
 The meter blinks 1000 times for every KWh => 1000b/KWh
 1000b/KWh = 1000b/1000Wh = 1b/1Wh = 16,666b/KWm = 0,2777b/KWs = 0,01666b/Wm
-TO-DO
--add MQTT functionality
+
 TO-DO later stages
 -create light-tight housing with ring magnet for mounting onto the smart meter
 -
@@ -79,20 +78,7 @@ void setup()
     {
       Serial.println("mqtt connection successful!");  
     }
-
-  // Port defaults to 8266
-  // ArduinoOTA.setPort(8266);
-
-  // Hostname defaults to esp8266-[ChipID]
-  // ArduinoOTA.setHostname("esp_ampmeter");
-
-  // No authentication by default
-  // ArduinoOTA.setPassword("admin");
-
-  // Password can be set with it's md5 value as well
-  // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
-  // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3");
-
+    
   Serial.println("Ready");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
@@ -102,9 +88,10 @@ void setup()
 void loop() 
 {
      
-      wm.process();   
-      
-    ldrStatus = analogRead(ldrPin);
+    wm.process();   
+    
+  //do the measurement magic  
+  ldrStatus = analogRead(ldrPin);
   if (ldrStatus != ldrStatusLast)
     {
       #ifdef DEBUG
@@ -126,11 +113,14 @@ void loop()
       {
       mqttClient.poll();
       lastPoll = millis();
-      Serial.println("poll");
+      
       mqttClient.beginMessage("status");
-      mqttClient.print("poll");
+      mqttClient.print("wattmeter is polling");
       mqttClient.endMessage();
-
+      
+      #ifdef DEBUG
+      Serial.println("poll");
+      #endif
       
       }
   //triggers every minute
@@ -140,14 +130,19 @@ void loop()
       Serial.println("another minute");
       #endif
       lastMillis = millis();
-      Serial.println(ldrCount);
+     
       watt = ldrCount / 0.01666;
+      ldrCount = 0;
+      
+      #ifdef DEBUG
+      Serial.println(ldrCount);
       Serial.println("");
       Serial.print(watt);
       Serial.print(" W");
       Serial.println("");
-      ldrCount = 0;
+      #endif
 
+      //publish measurement via mqtt
       mqttClient.beginMessage(topic);
       mqttClient.print(watt);
       mqttClient.endMessage();
@@ -164,6 +159,7 @@ void loop()
      mqttClient.beginMessage(topic);
      mqttClient.endMessage();
     
+    //restart if connection to mqtt broker is lost
      if (!mqttClient.connect(broker, port)) 
     {
       ESP.restart();
