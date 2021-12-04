@@ -6,9 +6,9 @@ the actual energy usage in watts.
 The meter blinks 1000 times for every KWh => 1000b/KWh
 1000b/KWh = 1000b/1000Wh = 1b/1Wh = 16,666b/KWm = 0,2777b/KWs = 0,01666b/Wm
 
-TO-DO later stages
--create light-tight housing with ring magnet for mounting onto the smart meter
--
+TO-DO 
+-rewrite using a different MQTT library
+-change to measure the time between blink pulses to get instant measurements instead of an average over 60 seconds. This involves changing the hardware to use a digital pin and a schmitt trigger on the LDR
 */
 
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
