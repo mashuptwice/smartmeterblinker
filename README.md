@@ -4,7 +4,7 @@ read out european smart meters with LED-blinks/KWh interface with just 3 compone
 ### Background
 
 I just got a Kaifa smart meter installed by the utilities provider. It has a serial interface to read out the power usage. As I am too lazy to fiddle around with this interface, I decided to use the impulse LED instead. 
-It blinks 1000 times for every KWh of energy. Doing some simple maths, it is easily possible to calculate the momentaneous power usage
+It blinks 1000 times for every KWh of energy. Doing some simple maths, it is easily possible to calculate the power usage
 
 #### Math
 b = blinks
