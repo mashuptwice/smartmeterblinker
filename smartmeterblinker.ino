@@ -1,168 +1,175 @@
 /*
-This is a rudimentary piece of code to read the "1000 blinks per KWh" LED on smart energy meters in europe.
-It simply counts a change of brightness on a light dependent resistor and does some simple math to calculate 
-the actual energy usage in watts.
-
-The meter blinks 1000 times for every KWh => 1000b/KWh
-1000b/KWh = 1000b/1000Wh = 1b/1Wh = 16,666b/KWm = 0,2777b/KWs = 0,01666b/Wm
-
-TO-DO 
--rewrite using a different MQTT library
--change to measure the time between blink pulses to get instant measurements instead of an average over 60 seconds. This involves changing the hardware to use a digital pin and a schmitt trigger on the LDR
+  This is a rudimentary piece of code to read the "1000 blinks per KWh" LED on smart energy meters in europe.
+  It simply counts a change of brightness on a light dependent resistor and does some simple math to calculate
+  the actual energy usage in watts.
+  The meter blinks 1000 times for every KWh => 1000b/KWh
+  1000b/KWh = 1000b/1000Wh = 1b/1Wh = 16,666b/KWm = 0,2777b/KWs = 0,01666b/Wm
+  
+  TO-DO
+  -change to measure the time between blink pulses to get instant measurements instead of an average over 60 seconds. This involves changing the hardware to use a digital pin and a schmitt trigger on the LDR
 */
 
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #include <ESP8266mDNS.h>
-#include <WiFiUdp.h>
-#include <ArduinoMqttClient.h>
+#include <PubSubClient.h>
+#include <PubSubClientTools.h>
+
+WiFiManager wm;
+WiFiClient wc;
+PubSubClient client(wc);
 
 //uncomment to enable debug messages to serial console
 //#define DEBUG
-
 
 const int ldrPin = A0;
 long int ldrCount = 0;
 int ldrStatus = 0;
 int ldrStatusLast = 0;
 float watt = 0;
+char wattstr[8];
 unsigned long lastMillis = 0;
 unsigned long lastPoll = 0;
 
 //mqtt configuration
-const char broker[] = "debian-vm";
-int        port     = 1883;
-const char topic[]  = "wattmeter";
+//set MQTT server IP here
+IPAddress server(192,168,1,2);
+//set MQTT credentials here
+const char* user = "username";
+const char* password = "password";
 
-WiFiManager wm;
-WiFiClient wc;
-MqttClient mqttClient(wc);
-
-
-void setup() 
+//reconnect function in case connection to server is lost
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect("arduinoClient", user, password)) {
+      Serial.println("connected");
+      //set LED to on
+      digitalWrite(LED_BUILTIN, LOW);
+      // Once connected, publish an announcement...
+      client.publish("wattmeter/status","connected");
+      // ... and resubscribe
+      //client.subscribe("inTopic");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      //set LED to off
+      digitalWrite(LED_BUILTIN, HIGH);
+      // Wait 5 seconds before retrying
+     // delay(5000);
+    }
+  }
+}
+void setup()
 {
-    WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP    
-    // put your setup code here, to run once:
-    Serial.begin(115200);
-    pinMode(LED_BUILTIN, OUTPUT);
-    pinMode(ldrPin, INPUT);
-    digitalWrite(LED_BUILTIN, HIGH);
-    
-    
-    #ifdef DEBUG
-    Serial.println("debug messages enabled");
-    #endif
-    
-    //reset settings - wipe credentials for testing
-    //wm.resetSettings();
+  Serial.begin(115200);
+  #ifdef DEBUG
+  Serial.println("debug messages enabled");
+  #endif
+  
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(ldrPin, INPUT);
+  digitalWrite(LED_BUILTIN, HIGH);
+  
+  // Connect to MQTT
+  client.setServer(server, 1883);
+  WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
 
-    wm.setConfigPortalBlocking(false);
+  //reset settings - wipe credentials for testing
+  //wm.resetSettings();
 
-    //automatically connect using saved credentials if they exist
-    //If connection fails it starts an access point with the specified name
-    if(wm.autoConnect("AutoConnectAP"))
-    {
-        Serial.println("connected...yeey :)");
-    }
-    else 
-    {
-        Serial.println("Configportal running");
-    }
+  wm.setConfigPortalBlocking(false);
 
-    if (!mqttClient.connect(broker, port)) 
-    {
-    Serial.print("MQTT connection failed! Error code = ");
-    Serial.println(mqttClient.connectError());
-    //while (1);
-    }
-    else
-    {
-      Serial.println("mqtt connection successful!");  
-    }
-    
+  //automatically connect using saved credentials if they exist
+  //If connection fails it starts an access point with the specified name
+  if (wm.autoConnect("AutoConnectAP"))
+  {
+    Serial.println("connected to configured WiFi");
+  }
+  else
+  {
+    Serial.println("Configportal running");
+  }
+  
   Serial.println("Ready");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
+
+  //enable onboard LED to signal successful startup
   digitalWrite(LED_BUILTIN, LOW);
-     
+
 }
-void loop() 
+void loop()
 {
-     
-    wm.process();   
-    
-  //do the measurement magic  
+  //WiFi config portal handling
+  wm.process();
+
+  //read the light intensity from LDR and count up if blinking is detected
   ldrStatus = analogRead(ldrPin);
   if (ldrStatus != ldrStatusLast)
+  {
+    #ifdef DEBUG
+    Serial.println("status changed");
+    Serial.println(ldrStatus);
+    #endif
+    
+    //small hysteresis to prevent ambient light triggering the counter
+    if ( (ldrStatus + 20) <= ldrStatusLast)
     {
       #ifdef DEBUG
-      Serial.println("status changed");
-      Serial.println(ldrStatus);
+      Serial.println("LED was on");
       #endif
-      //hysteresis
-      if ( (ldrStatus + 10) <= ldrStatusLast)
-      {
-        #ifdef DEBUG
-        Serial.println("LED was on");
-        #endif
-        ldrCount++;
-      }
-      ldrStatusLast = ldrStatus;
+      
+      ldrCount++;
     }
-  //poll to avoid being disconnected
-      if (millis() - lastPoll > 5000)
-      {
-      mqttClient.poll();
-      lastPoll = millis();
-      
-      mqttClient.beginMessage("status");
-      mqttClient.print("wattmeter is polling");
-      mqttClient.endMessage();
-      
-      #ifdef DEBUG
-      Serial.println("poll");
-      #endif
-      
-      }
+    ldrStatusLast = ldrStatus;
+  }
+  
   //triggers every minute
-    if (millis() - lastMillis > 60000)
-    {
-      #ifdef DEBUG
-      Serial.println("another minute");
-      #endif
-      lastMillis = millis();
-     
-      watt = ldrCount / 0.01666;
-      ldrCount = 0;
-      
-      #ifdef DEBUG
-      Serial.println(ldrCount);
-      Serial.println("");
-      Serial.print(watt);
-      Serial.print(" W");
-      Serial.println("");
-      #endif
+  if (millis() - lastMillis > 60000)
+  {
+    #ifdef DEBUG
+    Serial.println("another minute");
+    #endif
+    
+    lastMillis = millis();
+    //calculate watt from blink impulses over 60s time period
+    watt = ldrCount / 0.01666;
+    //convert to char for MQTT
+    itoa(watt,wattstr,10);
+    #ifdef DEBUG
+    Serial.println(ldrCount);
+    Serial.println("");
+    Serial.print(watt);
+    Serial.print(" W");
+    Serial.println("");
+    Serial.println("String");
+    Serial.println("");
+    Serial.print(wattstr);
+    Serial.print(" W");
+    Serial.println("");
+    #endif    
+    //reset counter
+    ldrCount = 0;
 
-      //publish measurement via mqtt
-      mqttClient.beginMessage(topic);
-      mqttClient.print(watt);
-      mqttClient.endMessage();
-      
-      
-      
-      //reset device every 46 days to prevent millis() from overflowing a unsigned long (happens at 49 days)
-      if ( lastMillis >= 4000000000 )
-      {
-      ESP.restart();
-      }
-    }
-     //something prevents MQTT messages being sent from within if loops, if this part is not in the main loop
-     mqttClient.beginMessage(topic);
-     mqttClient.endMessage();
-    
-    //restart if connection to mqtt broker is lost
-     if (!mqttClient.connect(broker, port)) 
+    //publish measurement via mqtt
+    client.publish("wattmeter", wattstr);
+
+    //reset device every 46 days to prevent millis() from overflowing a unsigned long (happens at 49 days)
+    if ( lastMillis >= 4000000000 )
     {
       ESP.restart();
-    
     }
+  }
+  
+  //reconnect if MQTT connection is lost
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+  
+  //for some reason the delay fixed the MQTT socket errors
+  delay(1);
 }
