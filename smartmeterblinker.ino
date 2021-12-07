@@ -13,7 +13,6 @@
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #include <ESP8266mDNS.h>
 #include <PubSubClient.h>
-#include <PubSubClientTools.h>
 
 WiFiManager wm;
 WiFiClient wc;
