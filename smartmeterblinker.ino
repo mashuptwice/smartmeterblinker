@@ -6,7 +6,8 @@
   1000b/KWh = 1000b/1000Wh = 1b/1Wh = 16,666b/KWm = 0,2777b/KWs = 0,01666b/Wm
   
   TO-DO
-  -change to measure the time between blink pulses to get instant measurements instead of an average over 60 seconds. This involves changing the hardware to use a digital pin and a schmitt trigger on the LDR
+  -(MAYBE)change to measure the time between blink pulses to get instant measurements instead of an average over 60 seconds. This involves changing the hardware to use a digital pin and a schmitt trigger on the LDR
+  -add real debounce to light sensor
 */
 
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
@@ -32,10 +33,10 @@ unsigned long lastPoll = 0;
 
 //mqtt configuration
 //set MQTT server IP here
-IPAddress server(192,168,1,2);
+IPAddress server(192,168,20,50);
 //set MQTT credentials here
-const char* user = "username";
-const char* password = "password";
+const char* user = "user";
+const char* password = "pass";
 
 //reconnect function in case connection to server is lost
 void reconnect() {
@@ -51,14 +52,23 @@ void reconnect() {
       client.publish("wattmeter/status","connected");
       // ... and resubscribe
       //client.subscribe("inTopic");
+     
+      //reset counters
+      lastMillis = millis();
+      ldrCount = 0;
+    
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
+      Serial.println(" try again in 3 seconds");
+      
       //set LED to off
       digitalWrite(LED_BUILTIN, HIGH);
-      // Wait 5 seconds before retrying
-     // delay(5000);
+      // Wait 3 seconds before retrying
+      delay(3000);
+     //reset counters
+      lastMillis = millis();
+      ldrCount = 0;
     }
   }
 }
@@ -110,19 +120,26 @@ void loop()
   ldrStatus = analogRead(ldrPin);
   if (ldrStatus != ldrStatusLast)
   {
+    /*
+    //just too chatty for debugging
     #ifdef DEBUG
     Serial.println("status changed");
     Serial.println(ldrStatus);
     #endif
+    */
     
     //small hysteresis to prevent ambient light triggering the counter
-    if ( (ldrStatus + 20) <= ldrStatusLast)
+    if ( (ldrStatus + 100) <= ldrStatusLast)
     {
+      ldrCount++;
+
       #ifdef DEBUG
       Serial.println("LED was on");
+      Serial.println(ldrCount);
       #endif
-      
-      ldrCount++;
+      //"debounce"
+      delay(100);
+      //TO DO: add real debounce here
     }
     ldrStatusLast = ldrStatus;
   }
@@ -136,7 +153,7 @@ void loop()
     
     lastMillis = millis();
     //calculate watt from blink impulses over 60s time period
-    watt = ldrCount / 0.01666;
+    watt = ldrCount / 0.0166666;
     //convert to char for MQTT
     itoa(watt,wattstr,10);
     #ifdef DEBUG
