@@ -1,5 +1,5 @@
 /*
-  This is a rudimentary piece of code to read the "1000 blinks per KWh" LED on smart energy meters in europe.
+  This is a small piece of code to read the "1000 blinks per KWh" LED on smart energy meters in europe.
   It simply counts a change of brightness on a light dependent resistor and does some simple math to calculate
   the actual energy usage in watts.
   The meter blinks 1000 times for every KWh => 1000b/KWh
@@ -10,17 +10,28 @@
   -add real debounce to light sensor
 */
 
-#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
-#include <ESP8266mDNS.h>
+#include <Arduino.h>
+#include <ESP8266WiFi.h>
 #include <PubSubClient.h>
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+#include <WiFiManager.h>         //https://github.com/tzapu/WiFiManager
 
-WiFiManager wm;
-WiFiClient wc;
-PubSubClient client(wc);
+
+
+// Update these with values suitable for your network.
+
+const char* mqtt_server = "192.168.1.50";
+const char* mqtt_user = "user";
+const char* mqtt_passwd = "passwd";
+
+
+
 
 //uncomment to enable debug messages to serial console
 //#define DEBUG
 
+//pin and variable setup
 const int ldrPin = A0;
 long int ldrCount = 0;
 int ldrStatus = 0;
@@ -30,92 +41,106 @@ char wattstr[8];
 unsigned long lastMillis = 0;
 unsigned long lastPoll = 0;
 
-//mqtt configuration
-//set MQTT server IP here
-IPAddress server(192,168,20,50);
-//set MQTT credentials here
-const char* user = "user";
-const char* password = "pass";
 
-//reconnect function in case connection to server is lost
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+unsigned long lastMsg = 0;
+#define MSG_BUFFER_SIZE	(50)
+char msg[MSG_BUFFER_SIZE];
+int value = 0;
+
+void setup_wifi() {
+
+  delay(10);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+
+  WiFiManager wifiManager;
+  wifiManager.autoConnect("AutoConnectAP");
+
+
+  randomSeed(micros());
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+
+}
+
 void reconnect() {
   // Loop until we're reconnected
   while (!client.connected()) {
     Serial.print("Attempting MQTT connection...");
+    // Create a random client ID
+    String clientId = "ESP8266Client-";
+    clientId += String(random(0xffff), HEX);
     // Attempt to connect
-    if (client.connect("arduinoClient", user, password)) {
+    if (client.connect(clientId.c_str())) {
       Serial.println("connected");
-      //set LED to on
-      digitalWrite(LED_BUILTIN, LOW);
       // Once connected, publish an announcement...
-      client.publish("wattmeter/status","connected");
+      client.publish("outTopic", "hello world");
       // ... and resubscribe
-      //client.subscribe("inTopic");
-     
-      //reset counters
-      lastMillis = millis();
-      ldrCount = 0;
-    
+      client.subscribe("inTopic");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
-      Serial.println(" try again in 3 seconds");
-      
-      //set LED to off
-      digitalWrite(LED_BUILTIN, HIGH);
-      // Wait 3 seconds before retrying
-      delay(3000);
-     //reset counters
+      Serial.println(" try again in 5 seconds");
+      // Wait 2 seconds before retrying
+      delay(2000);
+
+      //reset counters
       lastMillis = millis();
       ldrCount = 0;
     }
   }
 }
-void setup()
-{
+
+void setup() {
   Serial.begin(115200);
   #ifdef DEBUG
   Serial.println("debug messages enabled");
   #endif
-  
-  pinMode(LED_BUILTIN, OUTPUT);
+
+  pinMode(BUILTIN_LED, OUTPUT);     // Initialize the BUILTIN_LED pin as an output
   pinMode(ldrPin, INPUT);
   digitalWrite(LED_BUILTIN, HIGH);
-  
-  // Connect to MQTT
-  client.setServer(server, 1883);
-  WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
-
-  //reset settings - wipe credentials for testing
-  //wm.resetSettings();
-
-  wm.setConfigPortalBlocking(false);
-
-  //automatically connect using saved credentials if they exist
-  //If connection fails it starts an access point with the specified name
-  if (wm.autoConnect("AutoConnectAP"))
-  {
-    Serial.println("connected to configured WiFi");
-  }
-  else
-  {
-    Serial.println("Configportal running");
-  }
-  
-  Serial.println("Ready");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  //enable onboard LED to signal successful startup
-  digitalWrite(LED_BUILTIN, LOW);
+  #ifdef DEBUG
+  Serial.println("begin wifi setup");
+  #endif
+  setup_wifi();
+  #ifdef DEBUG
+  Serial.println("begin mqtt setup");
+  #endif
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+  #ifdef DEBUG
+  Serial.println("setup() done");
+  #endif
 
 }
-void loop()
-{
-  //WiFi config portal handling
-  wm.process();
 
-  //read the light intensity from LDR and count up if blinking is detected
+void loop() {
+
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+
+//read the light intensity from LDR and count up if blinking is detected
   ldrStatus = analogRead(ldrPin);
   if (ldrStatus != ldrStatusLast)
   {
@@ -123,7 +148,7 @@ void loop()
     //just too chatty for debugging
     #ifdef DEBUG
     Serial.println("status changed");
-    Serial.println(ldrStatus);
+    Serial.println(ldrStatus); 
     #endif
     */
     
@@ -179,13 +204,8 @@ void loop()
       ESP.restart();
     }
   }
-  
-  //reconnect if MQTT connection is lost
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
-  
-  //for some reason the delay fixed the MQTT socket errors
-  delay(1);
+
+
+  //adding delay for pubsubclient
+  delay(50);
 }
