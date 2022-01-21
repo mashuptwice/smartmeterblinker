@@ -17,3 +17,9 @@ b = blinks
 The code unilizes an ESP8266 with a simple resistor divider connected to A0, consisting of a 10kOhm resistor and a light dependend resistor. 
 
 On first test it measured around 33W too low (470W), compared to a clamp ampere meter (503W). Good enought for the Girls I go out with!
+
+
+## Other Projects
+
+This project was thrown together in an evening. 
+If you want to use some more finished solution and you are happening to use homeassistant, have a look into [Home Assistant Glow](https://github.com/klaasnicolaas/home-assistant-glow)
